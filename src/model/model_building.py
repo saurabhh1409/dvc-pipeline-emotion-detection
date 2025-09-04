@@ -1,112 +1,92 @@
 import numpy as np
 import pandas as pd
 import pickle
-import os
-import yaml
-
-from typing import Tuple, Dict, Optional
 from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.base import BaseEstimator
+import yaml
 import logging
 
-# ----------------- Logging Configuration -----------------
-logger = logging.getLogger("model_training")
-logger.setLevel(logging.DEBUG)
+# logging configuration
+logger = logging.getLogger('model_building')
+logger.setLevel('DEBUG')
 
 console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.DEBUG)
+console_handler.setLevel('DEBUG')
 
-# Create a file handler 
-file_handler = logging.FileHandler('errors.log')
-file_handler.setLevel('DEBUG')
+file_handler = logging.FileHandler('model_building_errors.log')
+file_handler.setLevel('ERROR')
 
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 console_handler.setFormatter(formatter)
 file_handler.setFormatter(formatter)
 
 logger.addHandler(console_handler)
 logger.addHandler(file_handler)
 
-
-def load_params(params_path: str) -> Dict:
-    """Load model parameters from a YAML config file."""
+def load_params(params_path: str) -> dict:
+    """Load parameters from a YAML file."""
     try:
-        with open(params_path, 'r') as f:
-            params = yaml.safe_load(f)
-        logger.info(f"Model parameters loaded: {params['model_building']}")
-        return params['model_building']
+        with open(params_path, 'r') as file:
+            params = yaml.safe_load(file)
+        logger.debug('Parameters retrieved from %s', params_path)
+        return params
     except FileNotFoundError:
-        logger.error(f"Params file not found at {params_path}. Using default parameters.")
-        return {'n_estimators': 100, 'learning_rate': 0.1}
-    except KeyError as e:
-        logger.error(f"Missing key in params.yaml: {e}. Using default parameters.")
-        return {'n_estimators': 100, 'learning_rate': 0.1}
+        logger.error('File not found: %s', params_path)
+        raise
     except yaml.YAMLError as e:
-        logger.error(f"Error parsing YAML file: {e}. Using default parameters.")
-        return {'n_estimators': 100, 'learning_rate': 0.1}
+        logger.error('YAML error: %s', e)
+        raise
+    except Exception as e:
+        logger.error('Unexpected error: %s', e)
+        raise
 
-
-def load_training_data(path: str) -> Tuple[pd.DataFrame, pd.Series]:
-    """Load training data from a CSV file."""
+def load_data(file_path: str) -> pd.DataFrame:
+    """Load data from a CSV file."""
     try:
-        df = pd.read_csv(path)
-        X = df.iloc[:, :-1]
-        y = df.iloc[:, -1]
-        logger.info(f"Training data loaded from {path} with shape {df.shape}")
-        return X, y
-    except FileNotFoundError:
-        logger.error(f"Training data file not found at {path}")
-        return pd.DataFrame(), pd.Series(dtype='int')
+        df = pd.read_csv(file_path)
+        logger.debug('Data loaded from %s', file_path)
+        return df
     except pd.errors.ParserError as e:
-        logger.error(f"Error parsing training data CSV: {e}")
-        return pd.DataFrame(), pd.Series(dtype='int')
+        logger.error('Failed to parse the CSV file: %s', e)
+        raise
+    except Exception as e:
+        logger.error('Unexpected error occurred while loading the data: %s', e)
+        raise
 
-
-def train_model(X: pd.DataFrame, y: pd.Series, params: Dict) -> Optional[BaseEstimator]:
-    """Train the GradientBoostingClassifier model."""
+def train_model(X_train: np.ndarray, y_train: np.ndarray, params: dict) -> GradientBoostingClassifier:
+    """Train the Gradient Boosting model."""
     try:
-        clf = GradientBoostingClassifier(
-            n_estimators=params.get('n_estimators', 100),
-            learning_rate=params.get('learning_rate', 0.1)
-        )
-        clf.fit(X, y)
-        logger.info("Model training completed successfully.")
+        clf = GradientBoostingClassifier(n_estimators=params['n_estimators'], learning_rate=params['learning_rate'])
+        clf.fit(X_train, y_train)
+        logger.debug('Model training completed')
         return clf
     except Exception as e:
-        logger.error(f"Error during model training: {e}")
-        return None
+        logger.error('Error during model training: %s', e)
+        raise
 
-
-def save_model(model: BaseEstimator, path: str) -> None:
-    """Save the trained model using pickle."""
+def save_model(model, file_path: str) -> None:
+    """Save the trained model to a file."""
     try:
-        with open(path, 'wb') as f:
-            pickle.dump(model, f)
-        logger.info(f"Model saved to {path}")
+        with open(file_path, 'wb') as file:
+            pickle.dump(model, file)
+        logger.debug('Model saved to %s', file_path)
     except Exception as e:
-        logger.error(f"Error saving model: {e}")
-
+        logger.error('Error occurred while saving the model: %s', e)
+        raise
 
 def main():
-    params_path = 'params.yaml'
-    data_path = './data/features/train_bow.csv'
-    model_output_path = 'model.pkl'
+    try:
+        params = load_params('params.yaml')['model_building']
 
-    params = load_params(params_path)
-    logger.info(f"Using model parameters: {params}")
+        train_data = load_data('./data/processed/train_tfidf.csv')
+        X_train = train_data.iloc[:, :-1].values
+        y_train = train_data.iloc[:, -1].values
 
-    X_train, y_train = load_training_data(data_path)
-    if X_train.empty or y_train.empty:
-        logger.error("Training data is empty. Exiting.")
-        return
+        clf = train_model(X_train, y_train, params)
+        
+        save_model(clf, 'models/model.pkl')
+    except Exception as e:
+        logger.error('Failed to complete the model building process: %s', e)
+        print(f"Error: {e}")
 
-    model = train_model(X_train, y_train, params)
-    if model is None:
-        logger.error("Model training failed. Exiting.")
-        return
-
-    save_model(model, model_output_path)
-
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

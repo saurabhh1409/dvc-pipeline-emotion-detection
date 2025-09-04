@@ -4,126 +4,115 @@ import os
 import re
 import nltk
 import string
-import logging
-from typing import Optional
 from nltk.corpus import stopwords
 from nltk.stem import WordNetLemmatizer
+import logging
 
-# ---------------- Logging Configuration ----------------
-
-logger = logging.getLogger("text_preprocessing")
-logger.setLevel(logging.DEBUG)
+# logging configuration
+logger = logging.getLogger('data_transformation')
+logger.setLevel('DEBUG')
 
 console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.DEBUG)
+console_handler.setLevel('DEBUG')
 
-# Create a file handler 
-file_handler = logging.FileHandler('errors.log')
-file_handler.setLevel('DEBUG')
+file_handler = logging.FileHandler('transformation_errors.log')
+file_handler.setLevel('ERROR')
 
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 console_handler.setFormatter(formatter)
 file_handler.setFormatter(formatter)
 
 logger.addHandler(console_handler)
 logger.addHandler(file_handler)
 
-# ---------------- Download NLTK Resources ----------------
+nltk.download('wordnet')
+nltk.download('stopwords')
 
-try:
-    nltk.download('wordnet')
-    nltk.download('stopwords')
-    logger.info("NLTK resources downloaded successfully.")
-except Exception as e:
-    logger.error(f"NLTK resource download failed: {e}")
-
-# ---------------- Read Data ----------------
-
-def read_data(path: str) -> Optional[pd.DataFrame]:
-    try:
-        df = pd.read_csv(path)
-        logger.info(f"Data loaded from {path} with shape {df.shape}")
-        return df
-    except FileNotFoundError:
-        logger.error(f"File not found: {path}")
-    except pd.errors.ParserError:
-        logger.error(f"Failed to parse CSV file: {path}")
-    return None
-
-# ---------------- Text Cleaning Functions ----------------
-
-def lemmatization(text: str) -> str:
+def lemmatization(text):
+    """Lemmatize the text."""
     lemmatizer = WordNetLemmatizer()
-    return " ".join([lemmatizer.lemmatize(word) for word in text.split()])
+    text = text.split()
+    text = [lemmatizer.lemmatize(word) for word in text]
+    return " ".join(text)
 
-def remove_stop_words(text: str) -> str:
+def remove_stop_words(text):
+    """Remove stop words from the text."""
     stop_words = set(stopwords.words("english"))
-    return " ".join([word for word in text.split() if word not in stop_words])
+    text = [word for word in str(text).split() if word not in stop_words]
+    return " ".join(text)
 
-def removing_numbers(text: str) -> str:
-    return ''.join([char for char in text if not char.isdigit()])
+def removing_numbers(text):
+    """Remove numbers from the text."""
+    text = ''.join([char for char in text if not char.isdigit()])
+    return text
 
-def lower_case(text: str) -> str:
-    return " ".join([word.lower() for word in text.split()])
+def lower_case(text):
+    """Convert text to lower case."""
+    text = text.split()
+    text = [word.lower() for word in text]
+    return " ".join(text)
 
-def removing_punctuations(text: str) -> str:
-    text = re.sub(r'[%s]' % re.escape(string.punctuation), ' ', text)
-    text = re.sub(r'\s+', ' ', text)
-    return text.strip()
+def removing_punctuations(text):
+    """Remove punctuations from the text."""
+    text = re.sub('[%s]' % re.escape(string.punctuation), ' ', text)
+    text = text.replace('؛', "")
+    text = re.sub('\s+', ' ', text).strip()
+    return text
 
-def removing_urls(text: str) -> str:
+def removing_urls(text):
+    """Remove URLs from the text."""
     url_pattern = re.compile(r'https?://\S+|www\.\S+')
     return url_pattern.sub(r'', text)
 
-# ---------------- Filter very short texts ----------------
+def remove_small_sentences(df):
+    """Remove sentences with less than 3 words."""
+    for i in range(len(df)):
+        if len(df.text.iloc[i].split()) < 3:
+            df.text.iloc[i] = np.nan
 
-def remove_small_sentences(df: pd.DataFrame) -> None:
-    df['text'] = df['text'].apply(lambda x: np.nan if len(str(x).split()) < 3 else x)
-
-# ---------------- Normalize Text Column ----------------
-
-def normalize_text(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
+def normalize_text(df):
+    """Normalize the text data."""
     try:
-        for func in [
-            lower_case,
-            remove_stop_words,
-            removing_numbers,
-            removing_punctuations,
-            removing_urls,
-            lemmatization
-        ]:
-            df['content'] = df['content'].astype(str).apply(func)
-        logger.info("Text normalization completed.")
+        df['content'] = df['content'].apply(lower_case)
+        logger.debug('converted to lower case')
+        df['content'] = df['content'].apply(remove_stop_words)
+        logger.debug('stop words removed')
+        df['content'] = df['content'].apply(removing_numbers)
+        logger.debug('numbers removed')
+        df['content'] = df['content'].apply(removing_punctuations)
+        logger.debug('punctuations removed')
+        df['content'] = df['content'].apply(removing_urls)
+        logger.debug('urls')
+        df['content'] = df['content'].apply(lemmatization)
+        logger.debug('lemmatization performed')
+        logger.debug('Text normalization completed')
+        return df
     except Exception as e:
-        logger.error(f"Error during text normalization: {e}")
-    return df
-
-# ---------------- Main Logic ----------------
+        logger.error('Error during text normalization: %s', e)
+        raise
 
 def main():
-    train_data = read_data('./data/raw/train.csv')
-    test_data = read_data('./data/raw/test.csv')
-
-    if train_data is None or test_data is None:
-        logger.error("Cannot proceed without valid training and testing data.")
-        return
-
-    # Apply cleaning
-    train_processed_data = normalize_text(train_data)
-    test_processed_data = normalize_text(test_data)
-
-    # Save data
-    data_path = os.path.join("data", "processed")
     try:
+        # Fetch the data from data/raw
+        train_data = pd.read_csv('./data/raw/train.csv')
+        test_data = pd.read_csv('./data/raw/test.csv')
+        logger.debug('data loaded properly')
+
+        # Transform the data
+        train_processed_data = normalize_text(train_data)
+        test_processed_data = normalize_text(test_data)
+
+        # Store the data inside data/processed
+        data_path = os.path.join("./data", "interim")
         os.makedirs(data_path, exist_ok=True)
-        train_processed_data.to_csv(os.path.join(data_path, 'train_processed.csv'), index=False)
-        test_processed_data.to_csv(os.path.join(data_path, 'test_processed.csv'), index=False)
-        logger.info("Processed data saved successfully.")
+        
+        train_processed_data.to_csv(os.path.join(data_path, "train_processed.csv"), index=False)
+        test_processed_data.to_csv(os.path.join(data_path, "test_processed.csv"), index=False)
+        
+        logger.debug('Processed data saved to %s', data_path)
     except Exception as e:
-        logger.error(f"Failed to save processed data: {e}")
+        logger.error('Failed to complete the data transformation process: %s', e)
+        print(f"Error: {e}")
 
-# ---------------- Entry Point ----------------
-
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()

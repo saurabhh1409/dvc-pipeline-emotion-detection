@@ -1,114 +1,101 @@
-import pandas as pd
 import numpy as np
+import pandas as pd
 import pickle
 import json
-from typing import Dict, Tuple
-
-from sklearn.metrics import (
-    accuracy_score,
-    precision_score,
-    recall_score,
-    roc_auc_score
-)
-from sklearn.base import BaseEstimator
+from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
 import logging
 
-# ----------------- Logging Configuration -----------------
-logger = logging.getLogger("model_evaluation")
-logger.setLevel(logging.DEBUG)
+# logging configuration
+logger = logging.getLogger('model_evaluation')
+logger.setLevel('DEBUG')
 
 console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.DEBUG)
+console_handler.setLevel('DEBUG')
 
-# Create a file handler 
-file_handler = logging.FileHandler('errors.log')
-file_handler.setLevel('DEBUG')
+file_handler = logging.FileHandler('model_evaluation_errors.log')
+file_handler.setLevel('ERROR')
 
-formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 console_handler.setFormatter(formatter)
 file_handler.setFormatter(formatter)
 
 logger.addHandler(console_handler)
 logger.addHandler(file_handler)
 
-
-def load_model(model_path: str) -> BaseEstimator:
-    """Load a trained model from a pickle file."""
+def load_model(file_path: str):
+    """Load the trained model from a file."""
     try:
-        with open(model_path, 'rb') as f:
-            model = pickle.load(f)
-        logger.info(f"Model loaded successfully from {model_path}")
+        with open(file_path, 'rb') as file:
+            model = pickle.load(file)
+        logger.debug('Model loaded from %s', file_path)
         return model
     except FileNotFoundError:
-        logger.error(f"Model file not found at {model_path}")
+        logger.error('File not found: %s', file_path)
         raise
     except Exception as e:
-        logger.error(f"Error loading model: {e}")
+        logger.error('Unexpected error occurred while loading the model: %s', e)
         raise
 
-
-def load_test_data(path: str) -> Tuple[np.ndarray, np.ndarray]:
-    """Load test data from a CSV file."""
+def load_data(file_path: str) -> pd.DataFrame:
+    """Load data from a CSV file."""
     try:
-        df = pd.read_csv(path)
-        X = df.iloc[:, :-1].values
-        y = df.iloc[:, -1].values
-        logger.info(f"Test data loaded from {path} with shape {df.shape}")
-        return X, y
-    except FileNotFoundError:
-        logger.error(f"Test data file not found at {path}")
-        raise
+        df = pd.read_csv(file_path)
+        logger.debug('Data loaded from %s', file_path)
+        return df
     except pd.errors.ParserError as e:
-        logger.error(f"Error parsing test data CSV: {e}")
+        logger.error('Failed to parse the CSV file: %s', e)
+        raise
+    except Exception as e:
+        logger.error('Unexpected error occurred while loading the data: %s', e)
         raise
 
-
-def evaluate_model(model: BaseEstimator, X: np.ndarray, y: np.ndarray) -> Dict[str, float]:
-    """Evaluate the model using standard metrics."""
+def evaluate_model(clf, X_test: np.ndarray, y_test: np.ndarray) -> dict:
+    """Evaluate the model and return the evaluation metrics."""
     try:
-        y_pred = model.predict(X)
-        y_pred_proba = model.predict_proba(X)[:, 1]
+        y_pred = clf.predict(X_test)
+        y_pred_proba = clf.predict_proba(X_test)[:, 1]
 
-        metrics = {
-            'accuracy': accuracy_score(y, y_pred),
-            'precision': precision_score(y, y_pred),
-            'recall': recall_score(y, y_pred),
-            'auc': roc_auc_score(y, y_pred_proba)
+        accuracy = accuracy_score(y_test, y_pred)
+        precision = precision_score(y_test, y_pred)
+        recall = recall_score(y_test, y_pred)
+        auc = roc_auc_score(y_test, y_pred_proba)
+
+        metrics_dict = {
+            'accuracy': accuracy,
+            'precision': precision,
+            'recall': recall,
+            'auc': auc
         }
-        logger.info(f"Evaluation metrics calculated: {metrics}")
-        return metrics
+        logger.debug('Model evaluation metrics calculated')
+        return metrics_dict
     except Exception as e:
-        logger.error(f"Error during model evaluation: {e}")
+        logger.error('Error during model evaluation: %s', e)
         raise
 
-
-def save_metrics(metrics: Dict[str, float], output_path: str) -> None:
-    """Save evaluation metrics to a JSON file."""
+def save_metrics(metrics: dict, file_path: str) -> None:
+    """Save the evaluation metrics to a JSON file."""
     try:
-        with open(output_path, 'w') as f:
-            json.dump(metrics, f, indent=4)
-        logger.info(f"Metrics saved to {output_path}")
+        with open(file_path, 'w') as file:
+            json.dump(metrics, file, indent=4)
+        logger.debug('Metrics saved to %s', file_path)
     except Exception as e:
-        logger.error(f"Error saving metrics to JSON: {e}")
+        logger.error('Error occurred while saving the metrics: %s', e)
         raise
-
 
 def main():
-    model_path = 'model.pkl'
-    test_data_path = './data/features/test_bow.csv'
-    metrics_output_path = 'metrics.json'
-
     try:
-        model = load_model(model_path)
-        X_test, y_test = load_test_data(test_data_path)
-        metrics = evaluate_model(model, X_test, y_test)
-        logger.info("Evaluation metrics:")
-        for k, v in metrics.items():
-            logger.info(f"{k}: {v:.4f}")
-        save_metrics(metrics, metrics_output_path)
-    except Exception:
-        logger.error("Evaluation failed due to an error.")
+        clf = load_model('./models/model.pkl')
+        test_data = load_data('./data/processed/test_tfidf.csv')
+        
+        X_test = test_data.iloc[:, :-1].values
+        y_test = test_data.iloc[:, -1].values
 
+        metrics = evaluate_model(clf, X_test, y_test)
+        
+        save_metrics(metrics, 'reports/metrics.json')
+    except Exception as e:
+        logger.error('Failed to complete the model evaluation process: %s', e)
+        print(f"Error: {e}")
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
